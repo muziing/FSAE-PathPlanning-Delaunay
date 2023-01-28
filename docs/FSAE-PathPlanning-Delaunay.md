@@ -107,7 +107,7 @@ for i = interval:interval:2 * m
 
 ## 移除外部三角形
 
-在进行三角剖分时，对于曲率比较大的弯道，可能会创建出落在赛道之外的三角形，进而导致后续产生错误的路径。因此需要通过施加约束边界 `C` 去除这些外部三角形。
+如图所示，在进行三角剖分时，可能会创建出落在赛道之外的三角形，进而导致后续产生错误的路径。因此需要通过施加约束边界 `C` 去除这些外部三角形。
 
 ![外部三角形](images/22oct3_6.png)
 
@@ -117,6 +117,8 @@ for i = interval:interval:2 * m
 
 - `C(j, 1)` 为第 j 条约束边起始顶点的 ID
 - `C(j, 2)` 为第 j 条约束边末端顶点的 ID
+
+下图显示了由矩阵 `C = [2 1;1 3;3 5;5 6;2 4;4 6]` 所定义的约束边界。
 
 ![约束边界C](images/22oct3_7.png)
 
@@ -139,6 +141,65 @@ for i = interval:interval:2 * m
 
 ### 创建带有约束的 Delaunay 三角剖分
 
+定义约束后，使用 [`delaunayTriangulation`](https://ww2.mathworks.cn/help/matlab/ref/delaunaytriangulation.html) 对象创建二维 Delaunay 三角剖分：
+
+```matlab
+    TR = delaunayTriangulation(delaTriaPoints, C); % 带约束的 Delaunay 三角剖分
+```
+
+在继续下一步之前，需要介绍一下 `delaunayTriangulation` 的 `Connectivity List`（连接列表）属性。该属性将在后续步骤中被使用，实现通过排除外部三角形来创建新的三角剖分。
+
+根据[文档](https://ww2.mathworks.cn/help/matlab/ref/delaunaytriangulation.html)，一个三角剖分（如 `DT`）的连接列表是一个具有以下特征的矩阵：
+
+- `DT.ConnectivityList` 中的每个元素是一个顶点 ID
+- 每一行中的顶点构成了三角剖分中的一个三角形
+- 行号对应于该行所表示的一个三角形 的ID
+
+例如，在下图中，第一行的 `[2 1 3]` 表示三角剖分后产生的第一个三角形。
+
+![连接列表](images/22oct3_8.png)
+
+在了解连接列表的含义之后，让我们看看如何利用带约束的 Delaunay 三角剖分 `TR` 的连接表来移除外部三角形。
+
+```matlab
+    TRC = TR.ConnectivityList; % 三角剖分连接矩阵
+```
+
+获得连接矩阵 `TRC` 后，要删除构成外部三角形的那些行。如下图示意，第二行 `[1 5 3]` 代表的是一个外部三角形。
+
+![连接列表矩阵中的外部三角形](images/22oct3_9.png)
+
+调用 `delaunayTriangulation` 对象的函数，可以实现各种拓扑与几何查询。在此处使用对象函数 [`isInterior`](https://ww2.mathworks.cn/help/matlab/ref/delaunaytriangulation.isinterior.html) 来检查每一行 ID 的三角形是否在有界几何区域内。该函数返回一个由逻辑值（布尔值）所组成的列向量：如果第 n 个逻辑值为 true，则三角剖分中的第 n 个三角形在约束区域 `C` 内，否则该三角形在约束区域 `C` 外，为外部三角形。
+
+![isInterior对象函数处理结果](images/22oct3_10.png)
+
+```matlab
+    TL = isInterior(TR); % 三角形是否在边界内的逻辑值
+    TC = TR.ConnectivityList(TL, :); % 三角剖分连接矩阵（去除外部三角形）
+```
+
+通过上述处理，获得了不包含外部三角形的新的连接列表矩阵 `TC`。然后依据 `TC`，从 `delaTriaPoints` 包含的点中创建一个新的二维三角剖分：
+
+```matlab
+    % （可选步骤） 使连接矩阵的行按升序排列
+    [~, pt] = sort(sum(TC, 2));
+    % 确保三角形按递进顺序连接
+    TS = TC(pt, :); % 基于行的升序连接矩阵
+    finalTria = triangulation(TS, delaTriaPoints); % 基于已排序的连接矩阵创建的三角剖分
+
+    % 绘制去除外部三角形的 Delaunay 三角剖分
+    figure(2)
+    triplot(finalTria, 'k')
+    grid on
+    ax = gca;
+    ax.GridColor = [0, 0, 0]; % [R, G, B]
+    xlabel('x(m)')
+    ylabel('y (m)')
+    set(gca, 'Color', '#EEEEEE')
+    title('Delaunay Triangulation without Outliers')
+    hold on
+```
+
 ## 获取中点与平滑处理
 
 ### 获取内部边中点
@@ -149,10 +210,10 @@ for i = interval:interval:2 * m
 
 ```matlab
     %% 寻找内边中心点
-    xPoints = sortedTria.Points(:, 1);
-    yPoints = sortedTria.Points(:, 2);
+    xPoints = finalTria.Points(:, 1);
+    yPoints = finalTria.Points(:, 2);
 
-    E = edges(sortedTria); % 三角剖分边缘
+    E = edges(finalTria); % 三角剖分边缘
     isEven = rem(E, 2) == 0; % 忽略边界边缘
     Eeven = E(any(isEven, 2), :);
     isOdd = rem(Eeven, 2) ~= 0;
@@ -200,7 +261,7 @@ for i = interval:interval:2 * m
     pos1 = [0.1, 0.15, 0.5, 0.7];
     subplot('Position', pos1)
     pathPlanPlot(innerConePosition, outerConePosition, ...
-        P, delaTria, sortedTria, xMidpoints, yMidpoints, cIn, cOut, xq, yq)
+        P, delaTria, finalTria, xMidpoints, yMidpoints, cIn, cOut, xq, yq)
     title(['Path planning based on constrained Delaunay' ...
                newline ' triangulation'])
 
@@ -208,13 +269,19 @@ for i = interval:interval:2 * m
     pos2 = [0.7, 0.15, 0.25, 0.7];
     subplot('Position', pos2)
     pathPlanPlot(innerConePosition, outerConePosition, ...
-        P, delaTria, sortedTria, xMidpoints, yMidpoints, cIn, cOut, xq, yq)
+        P, delaTria, finalTria, xMidpoints, yMidpoints, cIn, cOut, xq, yq)
     xlim([min(min(xPoints(1:2:(mc - 1)), xPoints(2:2:mc))) ...
               max(max(xPoints(1:2:(mc - 1)), xPoints(2:2:mc)))])
     ylim([min(min(yPoints(1:2:(mc - 1)), yPoints(2:2:mc))) ...
               max(max(yPoints(1:2:(mc - 1)), yPoints(2:2:mc)))])
 
 end
+
+% figure(3)的图例
+h = legend('blueCone', 'redCone', 'start', 'midpoint', 'internal edges', ...
+'inner boundary', 'outer boundary', 'planned path');
+
+plannedPath = [xPos', yPos']; % 组合出最终规划路径
 ```
 
 其中 `pathPlanPlot()` 函数代码如下：
@@ -244,9 +311,9 @@ function [] = pathPlanPlot(innerConePosition, outerConePosition, P, DT, TO, xmp,
 
     hold on
     plot(DT.Points(cOut', 1), DT.Points(cOut', 2), ...
-        'Color', '#E54E5D', 'LineWidth', 2) % 左侧红锥桶边界线
+        'Color', '#E54E5D', 'LineWidth', 2) % 左侧锥桶边界线
     plot(DT.Points(cIn', 1), DT.Points(cIn', 2), ...
-        'Color', '#037CD2', 'LineWidth', 2) % 右侧蓝锥桶边界线
+        'Color', '#037CD2', 'LineWidth', 2) % 右侧锥桶边界线
     drawnow
 
     hold on
