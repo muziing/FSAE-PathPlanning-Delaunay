@@ -139,11 +139,35 @@ for i = interval:interval:2 * m
 
 ### 创建带有约束的 Delaunay 三角剖分
 
-## 获取内部边中点
+## 获取中点与平滑处理
 
-## 中心点插值
+### 获取内部边中点
 
-最后，为了使获得的路径足够光滑，需要在中心点之间进行插值：
+如下图所示，寻找所有位于车道内部的三角形边的中点，连接这些中点即为初步规划出的路径：
+
+![找到内边中心点](images/22oct3_11.png)
+
+```matlab
+    %% 寻找内边中心点
+    xPoints = sortedTria.Points(:, 1);
+    yPoints = sortedTria.Points(:, 2);
+
+    E = edges(sortedTria); % 三角剖分边缘
+    isEven = rem(E, 2) == 0; % 忽略边界边缘
+    Eeven = E(any(isEven, 2), :);
+    isOdd = rem(Eeven, 2) ~= 0;
+    Eodd = Eeven(any(isOdd, 2), :);
+
+    xMidpoints = ((xPoints((Eodd(:, 1))) + xPoints((Eodd(:, 2)))) / 2); % x 中点坐标
+    yMidpoints = ((yPoints((Eodd(:, 1))) + yPoints((Eodd(:, 2)))) / 2); % y 中点坐标
+    PMidpoints = [xMidpoints, yMidpoints]; % 中点坐标
+```
+
+### 中心点插值
+
+最后，为了使获得的路径足够光滑，还需要在中心点之间进行插值：
+
+![内边中心点插值](images/22oct3_12.png)
 
 ```matlab
     %% 中心点插值
@@ -165,6 +189,8 @@ for i = interval:interval:2 * m
     xPos(:, startCount:endCount) = xq; % 在每次迭代后存储获得的 x 中点
     yPos(:, startCount:endCount) = yq; % 在每次迭代后存储获得的 y 中点
 ```
+
+## 期望路径可视化
 
 对最终规划结果进行可视化：
 
