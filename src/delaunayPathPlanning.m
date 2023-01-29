@@ -3,10 +3,10 @@ clear
 
 %% 加载锥桶坐标数据
 conePosTable = readtable("cone_position_data.csv");
-innerIndex = conePosTable.type == 11;
+innerIndex = conePosTable.type == 11; % 内侧锥桶索引
 innerConePosition = [conePosTable(innerIndex, "x_coor"), ...
                          conePosTable(innerIndex, "y_coor")];
-outerIndex = conePosTable.type == 2;
+outerIndex = conePosTable.type == 2; % 外侧锥桶索引
 outerConePosition = [conePosTable(outerIndex, "x_coor"), ...
                          conePosTable(outerIndex, "y_coor")];
 
@@ -25,13 +25,15 @@ yPos = zeros(1, pathCount); % 数值向量 yPos，用于每次迭代后存储规
 
 for i = interval:interval:2 * m
     % 在每次循环中进行一个路段的路径规划，路段区间长度由interval控制
+
     %% 构建 Delaunay 三角形
     pointIndex = ((abs((i - 1) - interval)):i); % 属于该局部路段的点集的索引
     delaTria = delaunayTriangulation(P(pointIndex, :)); % 为该路段的点集创建 Delaunay 三角剖分
     delaTriaPoints = delaTria.Points; % 顶点坐标
     [mc, ~] = size(delaTriaPoints); % size
 
-    figure(1) % 绘制 Delaunay 三角剖分
+    % 绘制 Delaunay 三角剖分
+    figure(1)
     triplot(delaTria, 'k')
     grid on
     ax = gca;
@@ -43,6 +45,7 @@ for i = interval:interval:2 * m
     hold on
 
     %% 移除外部三角形
+    % 获取约束边界 C
     if rem(interval, 2) == 0
         % 当区间为偶数时的内外侧约束
         cIn = [2, 1; (1:2:mc - 3)', (3:2:(mc))'; (mc - 1), mc];
@@ -53,18 +56,21 @@ for i = interval:interval:2 * m
         cOut = [(2:2:(mc - 2))', (4:2:mc)'];
     end
 
-    C = [cIn; cOut]; % 创建一个连接约束边界的矩阵
+    C = [cIn; cOut]; % 连接约束边界的矩阵
+
     TR = delaunayTriangulation(delaTriaPoints, C); % 带约束的 Delaunay 三角剖分
     TRC = TR.ConnectivityList; % 三角剖分连接矩阵
-    TL = isInterior(TR); % 三角形是否在边界内的逻辑值
-    TC = TR.ConnectivityList(TL, :); % 三角剖分连接矩阵
-    [~, pt] = sort(sum(TC, 2)); % （可选项） The rows of connectivity matrix are arranged in ascending sum of rows...
-    % 确保三角形按渐进顺序连接
-    TS = TC(pt, :); % 基于行的升序连接矩阵
-    sortedTria = triangulation(TS, delaTriaPoints); % 基于已排序的连接矩阵创建的三角剖分
+    TL = isInterior(TR); % 三角形是否在约束边界内的逻辑值
+    TC = TR.ConnectivityList(TL, :); % 三角剖分连接矩阵（去除外部三角形）
 
-    figure(2) % 绘制去除外部三角形的 Delaunay 三角剖分
-    triplot(sortedTria, 'k')
+    %（可选步骤） 使连接矩阵的行按升序排列，确保三角形按递进顺序连接
+    [~, pt] = sort(sum(TC, 2));
+    TS = TC(pt, :); % 按行升序的连接矩阵
+    finalTria = triangulation(TS, delaTriaPoints); % 基于已排序的连接矩阵创建三角剖分
+
+    % 绘制去除外部三角形的 Delaunay 三角剖分
+    figure(2)
+    triplot(finalTria, 'k')
     grid on
     ax = gca;
     ax.GridColor = [0, 0, 0]; % [R, G, B]
@@ -75,10 +81,10 @@ for i = interval:interval:2 * m
     hold on
 
     %% 寻找内边中心点
-    xPoints = sortedTria.Points(:, 1);
-    yPoints = sortedTria.Points(:, 2);
+    xPoints = finalTria.Points(:, 1);
+    yPoints = finalTria.Points(:, 2);
 
-    E = edges(sortedTria); % 三角剖分边缘
+    E = edges(finalTria); % 三角剖分边缘
     isEven = rem(E, 2) == 0; % 忽略边界边缘
     Eeven = E(any(isEven, 2), :);
     isOdd = rem(Eeven, 2) ~= 0;
@@ -107,12 +113,13 @@ for i = interval:interval:2 * m
     xPos(:, startCount:endCount) = xq; % 在每次迭代后存储获得的 x 中点
     yPos(:, startCount:endCount) = yq; % 在每次迭代后存储获得的 y 中点
 
-    figure(3) % 动态绘制路径规划
+    % 动态绘制路径规划
+    figure(3)
     % 用于展示规划路径全貌的子图
     pos1 = [0.1, 0.15, 0.5, 0.7];
     subplot('Position', pos1)
     pathPlanPlot(innerConePosition, outerConePosition, ...
-        P, delaTria, sortedTria, xMidpoints, yMidpoints, cIn, cOut, xq, yq)
+        P, delaTria, finalTria, xMidpoints, yMidpoints, cIn, cOut, xq, yq)
     title(['Path planning based on constrained Delaunay' ...
                newline ' triangulation'])
 
@@ -120,7 +127,7 @@ for i = interval:interval:2 * m
     pos2 = [0.7, 0.15, 0.25, 0.7];
     subplot('Position', pos2)
     pathPlanPlot(innerConePosition, outerConePosition, ...
-        P, delaTria, sortedTria, xMidpoints, yMidpoints, cIn, cOut, xq, yq)
+        P, delaTria, finalTria, xMidpoints, yMidpoints, cIn, cOut, xq, yq)
     xlim([min(min(xPoints(1:2:(mc - 1)), xPoints(2:2:mc))) ...
               max(max(xPoints(1:2:(mc - 1)), xPoints(2:2:mc)))])
     ylim([min(min(yPoints(1:2:(mc - 1)), yPoints(2:2:mc))) ...
