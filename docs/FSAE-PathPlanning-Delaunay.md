@@ -14,6 +14,9 @@
 
 ## 背景知识：Delaunay三角剖分
 
+- [MATLAB文档-三角剖分表示法](https://ww2.mathworks.cn/help/matlab/math/triangulation-representations_zh_CN.html)
+- [MATLAB文档-使用 Delaunay 三角剖分](https://ww2.mathworks.cn/help/matlab/math/delaunay-triangulation.html)
+
 ## 创建Delaunay三角剖分
 
 ### 读取加载数据
@@ -43,10 +46,10 @@ num,type,x_coor,y_coor
 ```matlab
 %% 加载锥桶坐标数据
 conePosTable = readtable("cone_position_data.csv");
-innerIndex = conePosTable.type == 11;
+innerIndex = conePosTable.type == 11; % 内侧锥桶索引
 innerConePosition = [conePosTable(innerIndex, "x_coor"), ...
                          conePosTable(innerIndex, "y_coor")];
-outerIndex = conePosTable.type == 2;
+outerIndex = conePosTable.type == 2; % 外侧锥桶索引
 outerConePosition = [conePosTable(outerIndex, "x_coor"), ...
                          conePosTable(outerIndex, "y_coor")];
 ```
@@ -82,18 +85,28 @@ yPos = zeros(1, pathCount); % 数值向量 yPos，用于每次迭代后存储规
 
 ### 构建三角形
 
-用一个 for 循环控制，每次循环中进行一个路段的路径规划，循环完成后即完成整条赛道的路径规划：
+用一个 for 循环控制，每次循环中进行一个路段的路径规划，循环完成后即完成整条赛道的路径规划。注意此段之后代码的缩进，表明后续代码均在此循环体内：
 
 ```matlab
 for i = interval:interval:2 * m
     % 在每次循环中进行一个路段的路径规划，路段区间长度由interval控制
+```
+
+计算出属于该路段的坐标点集索引 `pointIndex`，`P(pointIndex, :)` 即为属于该路段的坐标。以此创建 `delaunayTriangulation` 对象 `delaTria`。
+
+```matlab
     %% 构建 Delaunay 三角形
     pointIndex = ((abs((i - 1) - interval)):i); % 属于该局部路段的点集的索引
     delaTria = delaunayTriangulation(P(pointIndex, :)); % 为该路段的点集创建 Delaunay 三角剖分
     delaTriaPoints = delaTria.Points; % 顶点坐标
     [mc, ~] = size(delaTriaPoints); % size
+```
 
-    figure(1) % 绘制 Delaunay 三角剖分
+Delaunay 三角剖分可视化：
+
+```matlab
+    % 绘制 Delaunay 三角剖分
+    figure(1)
     triplot(delaTria, 'k')
     grid on
     ax = gca;
@@ -104,6 +117,8 @@ for i = interval:interval:2 * m
     title('Delaunay Triangulation')
     hold on
 ```
+
+![Figure_1](images/Figure_1.png)
 
 ## 移除外部三角形
 
@@ -126,6 +141,7 @@ for i = interval:interval:2 * m
 
 ```matlab
     %% 移除外部三角形
+    % 获取约束边界 C
     if rem(interval, 2) == 0
         % 当区间为偶数时的内外侧约束
         cIn = [2, 1; (1:2:mc - 3)', (3:2:(mc))'; (mc - 1), mc];
@@ -136,7 +152,7 @@ for i = interval:interval:2 * m
         cOut = [(2:2:(mc - 2))', (4:2:mc)'];
     end
 
-    C = [cIn; cOut]; % 创建一个连接约束边界的矩阵
+    C = [cIn; cOut]; % 连接约束边界的矩阵
 ```
 
 ### 创建带有约束的 Delaunay 三角剖分
@@ -174,19 +190,22 @@ for i = interval:interval:2 * m
 ![isInterior对象函数处理结果](images/22oct3_10.png)
 
 ```matlab
-    TL = isInterior(TR); % 三角形是否在边界内的逻辑值
+    TL = isInterior(TR); % 三角形是否在约束边界内的逻辑值
     TC = TR.ConnectivityList(TL, :); % 三角剖分连接矩阵（去除外部三角形）
 ```
 
 通过上述处理，获得了不包含外部三角形的新的连接列表矩阵 `TC`。然后依据 `TC`，从 `delaTriaPoints` 包含的点中创建一个新的二维三角剖分：
 
 ```matlab
-    % （可选步骤） 使连接矩阵的行按升序排列
+    %（可选步骤） 使连接矩阵的行按升序排列，确保三角形按递进顺序连接
     [~, pt] = sort(sum(TC, 2));
-    % 确保三角形按递进顺序连接
-    TS = TC(pt, :); % 基于行的升序连接矩阵
-    finalTria = triangulation(TS, delaTriaPoints); % 基于已排序的连接矩阵创建的三角剖分
+    TS = TC(pt, :); % 按行升序的连接矩阵
+    finalTria = triangulation(TS, delaTriaPoints); % 基于已排序的连接矩阵创建三角剖分
+```
 
+绘图，可视化观察可知，已经成功去除了外部三角形。
+
+```matlab
     % 绘制去除外部三角形的 Delaunay 三角剖分
     figure(2)
     triplot(finalTria, 'k')
@@ -199,6 +218,8 @@ for i = interval:interval:2 * m
     title('Delaunay Triangulation without Outliers')
     hold on
 ```
+
+![Figure_2](images/Figure_2.png)
 
 ## 获取中点与平滑处理
 
@@ -226,7 +247,7 @@ for i = interval:interval:2 * m
 
 ### 中心点插值
 
-最后，为了使获得的路径足够光滑，还需要在中心点之间进行插值：
+最后，为了使获得的路径足够光滑，还需要在中心点之间进行插值，插值点的数量由变量 `interpolationNum` 控制：
 
 ![内边中心点插值](images/22oct3_12.png)
 
@@ -256,7 +277,8 @@ for i = interval:interval:2 * m
 对最终规划结果进行可视化：
 
 ```matlab
-    figure(3) % 动态绘制路径规划
+    % 动态绘制路径规划
+    figure(3)
     % 用于展示规划路径全貌的子图
     pos1 = [0.1, 0.15, 0.5, 0.7];
     subplot('Position', pos1)
@@ -283,6 +305,8 @@ h = legend('blueCone', 'redCone', 'start', 'midpoint', 'internal edges', ...
 
 plannedPath = [xPos', yPos']; % 组合出最终规划路径
 ```
+
+![动态演示规划效果](images/22oct3_13.gif)
 
 其中 `pathPlanPlot()` 函数代码如下：
 
@@ -322,3 +346,5 @@ function [] = pathPlanPlot(innerConePosition, outerConePosition, P, DT, TO, xmp,
 
 end
 ```
+
+![Figure_3](images/Figure_3.png)
